@@ -17,58 +17,40 @@ limitations under the License.
 package triedb
 
 // Persistent trie node interface
-type node interface {
-	// Node value.
-	Value() Value
-
-	// Obtains a value
-	Get(key []byte, pos int) Value
+type node struct {
+	key      byte
+	value    Value
+	next     *node
+	children *node
 }
 
-// The empty node
-var (
-	empty = emptyNode{}
-)
-
-// Returns the empty node
-func Empty() node {
-	return &empty
-}
-
-// Empty node definition
-type emptyNode struct {
-}
-
-func (*emptyNode) Value() Value {
-	return nil
-}
-
-func (*emptyNode) Get(key []byte, pos int) Value {
-	return nil
-}
-
-// Leaf node, only contains a value
-type leafNode struct {
-	value Value
-}
-
-func (n *leafNode) Value() Value {
-	return n.value
-}
-
-func (n *leafNode) Get(key []byte, pos int) Value {
-	if pos == len(key)-1 {
-		return n.value
+func (n *node) get(key []byte, pos int) Value {
+	var k = key[pos]
+	// Next sibling
+	if k > n.key {
+		if n.next != nil {
+			return n.next.get(key, pos)
+		}
+		return nil
 	}
-	return nil
+	// Current node
+	if k == n.key {
+		var last = len(key) - 1
+		if pos < last {
+			if n.children != nil {
+				return n.children.get(key, pos+1)
+			}
+			return nil
+		}
+		if pos == last {
+			return n.value
+		}
+		panic("Position exceeded")
+	}
+	// Previous sibling, should not happen
+	panic("Previous sibling")
 }
 
-// Full node. Worst case
-type fullNode struct {
-	nodes [256]node
-	value Value
-}
-
-func (n *fullNode) Value() Value {
-	return n.value
+func (n *node) remove(key []byte, pos int) *node {
+	return nil // todo
 }
