@@ -16,7 +16,7 @@ limitations under the License.
 
 package triedb
 
-// Persistent trie node interface
+// A node represents a node in the persistent trie used as an index.
 type node struct {
 	key      byte
 	depth    int16
@@ -26,7 +26,8 @@ type node struct {
 	children *node
 }
 
-// Creates a new node
+// createNode creates a new node. Every node must be created using this function
+// (or other based on this) in order to maintain the invariants.
 func createNode(key byte, value Value, next *node, children *node) *node {
 	var d int16
 	var c int32
@@ -40,25 +41,40 @@ func createNode(key byte, value Value, next *node, children *node) *node {
 	}
 	if children != nil {
 		d = 1 + children.depth
+		c += children.count
 	} else {
 		d = 1
 	}
 	return &node{key, d, c, value, next, children}
 }
 
-// Creates a leaf node
+// clear returns nil if the node is empty, or the current node if not
+func (n *node) clear() *node {
+	if n.value == nil && n.next == nil && n.children == nil {
+		return nil
+	}
+	return n
+}
+
+// createLeaf creates a new node with no children and no siblings.
 func createLeaf(key byte, value Value) *node {
 	return createNode(key, value, nil, nil)
 }
 
-// Gets the value for a key.
-func (n *node) get(key []byte, pos int) Value {
-	var last = len(key) - 1
+// getKey returns the byte at the current position and the last index for the provided key and position
+func getKey(key []byte, pos int) (k byte, last int) {
+	last = len(key) - 1
 	if pos >= last {
 		panic("Position exceeded")
 	}
-	var k = key[pos]
-	// Next sibling
+	k = key[pos]
+	return
+}
+
+// get returns the value for a key slice, if any.
+func (n *node) get(key []byte, pos int) Value {
+	k, last := getKey(key, pos)
+	// Refer to next sibling
 	if k > n.key {
 		if n.next != nil {
 			return n.next.get(key, pos)
@@ -77,11 +93,11 @@ func (n *node) get(key []byte, pos int) Value {
 			return n.value
 		}
 	}
-	// Previous sibling
+	// It was for a previous sibling
 	return nil
 }
 
-// Changes the next pointer of a node
+// setNext creates a new node with the provided next sibling pointer if it is different from the current one.
 func (n *node) setNext(next *node) *node {
 	if n.next == next {
 		return n
@@ -89,7 +105,7 @@ func (n *node) setNext(next *node) *node {
 	return createNode(n.key, n.value, next, n.children)
 }
 
-// Changes the children pointer of a node
+// setChildren creates a new node with the provided first sibling pointer if it is different from the current one.
 func (n *node) setChildren(children *node) *node {
 	if n.children == children {
 		return n
@@ -97,50 +113,76 @@ func (n *node) setChildren(children *node) *node {
 	return createNode(n.key, n.value, n.next, children)
 }
 
-// Sets the value of a key.
+// createSibling creates a new sibling node.
+func (n *node) createSibling(key []byte, pos int, value Value) *node {
+	k, last := getKey(key, pos)
+	prev := k < n.key
+	// If no value is provided it's done.
+	if value == nil {
+		if prev {
+			return n
+		} else {
+			return nil
+		}
+	}
+	// Calculate next pointer
+	var next *node
+	if prev {
+		next = n
+	} else {
+		next = nil
+	}
+	// If we are not at the end of the key, create, complete and return an intermediate node
+	if pos < last {
+		return createNode(k, nil, next, nil).set(key, pos, value)
+	}
+	// End of the key, create and return a sibling node.
+	return createNode(k, value, next, nil)
+}
+
+// set creates a new node with the provided value for the provided key slice if it is different from the current one.
 func (n *node) set(key []byte, pos int, value Value) *node {
-	var last = len(key) - 1
-	if pos >= last {
-		panic("Position exceeded")
-	}
-	var k = key[pos]
-	// Previous sibling
+	k, last := getKey(key, pos)
+	// It is for a previous sibling
 	if k < n.key {
-		return n // Not found, unmodified
+		// We create a previous sibling node if needed
+		return n.createSibling(key, pos, value)
 	}
-	var ret *node // return value
 	// Next sibling
 	if k > n.key {
+		var next *node
 		if n.next != nil {
-			ret = n.setNext(n.next.set(key, pos, value))
+			next = n.next.set(key, pos, value)
 		} else {
-			return n // Not found, unmodified
+			next = n.createSibling(key, pos, value)
 		}
+		return n.setNext(next).clear()
 	}
 	// Current node
 	if k == n.key {
 		if pos < last {
+			var children *node
 			if n.children != nil {
-				ret = n.setChildren(n.children.set(key, pos+1, value))
+				children = n.children
 			} else {
-				return n // Not found, unmodified
+				if value == nil {
+					return n // Unmodified
+				}
+				children = createNode(key[pos+1], nil, nil, nil)
 			}
+			return n.setChildren(children.set(key, pos+1, value)).clear()
 		} else { // this is the node to change
 			if n.value == value {
 				return n // Unmodified
 			} else {
-				ret = createNode(n.key, value, n.next, n.children)
+				return createNode(n.key, value, n.next, n.children).clear()
 			}
 		}
 	}
-	// Check if the node has to disappear
-	if ret.value == nil && ret.next == nil && ret.children == nil {
-		return nil
-	}
-	return ret
+	panic("Unreachable")
 }
 
-// Removes a key
+// remove clears the value for a key, removing the nodes that are not needed any more.
 func (n *node) remove(key []byte, pos int) *node {
 	return n.set(key, pos, nil)
 }

@@ -14,6 +14,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+// Package triedb provides the TrieDB runtime plus a byte slice-based
+// reference back-end implementation, used for testing pruposes.
 package triedb
 
 import "io"
